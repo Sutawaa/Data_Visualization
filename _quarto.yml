@@ -1,0 +1,10 @@
+project:
+  type: default
+  execute-dir: file
+format:
+  html:
+    theme: cosmo
+    toc: true
+    embed-resources: true
+    lang: id
+    code-fold: false

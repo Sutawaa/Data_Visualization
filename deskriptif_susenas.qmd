@@ -1,0 +1,282 @@
+---
+title: "Analisis Deskriptif Rumah Tangga Jawa Barat"
+subtitle: "Rumah tangga Jawa Barat: tren 2019–2023 dan profil 2023"
+engine: knitr
+execute:
+  echo: false
+  message: false
+  warning: true
+  cache: false
+format:
+  html:
+    css: styles.css
+    toc-title: "Dalam laporan ini"
+    title-block-banner: "#123D4A"
+    title-block-banner-color: "#FFFFFF"
+    code-fold: false
+    code-tools: false
+---
+
+## Fokus analisis
+
+::: {.report-overview}
+::: {.overview-item}
+[JAWA BARAT]{.overview-label}
+
+[2019–2023]{.overview-value}
+
+Periode pengamatan
+:::
+::: {.overview-item}
+[UNIT ANALISIS]{.overview-label}
+
+[Rumah tangga]{.overview-value}
+
+SUSENAS Maret · KOR
+:::
+::: {.overview-item}
+[PERBANDINGAN]{.overview-label}
+
+[Kota & desa]{.overview-value}
+
+Estimasi tertimbang FWT
+:::
+:::
+
+Analisis ini menggambarkan karakteristik rumah tangga Jawa Barat berdasarkan SUSENAS Maret. Perbandingan perkotaan dan perdesaan mencakup ukuran rumah tangga, status kepemilikan tempat tinggal, fasilitas buang air besar, dan pengalaman kesulitan pangan. Perubahan ukuran rumah tangga diamati selama 2019–2023, sedangkan profil lainnya menggunakan data 2023.
+
+| Aspek | Pertanyaan deskriptif | Variabel | Visualisasi |
+|---|---|---|---|
+| 1. Tren ukuran rumah tangga | Bagaimana rata-rata jumlah ART berubah menurut wilayah selama 2019–2023? | R301, R105, FWT | Grafik dua garis |
+| 2. Distribusi ukuran rumah tangga | Ukuran rumah tangga mana yang paling umum pada 2023? | R301, R105, FWT | Batang horizontal berkelompok |
+| 3. Kepemilikan tempat tinggal | Bagaimana komposisi status kepemilikan rumah menurut wilayah? | R1802, R105, FWT | Batang horizontal berkelompok |
+| 4. Fasilitas BAB | Bagaimana akses dan penggunaan fasilitas BAB menurut wilayah? | R1809A, R105, FWT | Batang horizontal berkelompok |
+| 5. Pengalaman kesulitan pangan | Pengalaman apa yang paling sering dilaporkan rumah tangga? | R1701–R1708, R105, FWT | Grafik titik per butir |
+
+## Data dan metode
+
+Data bersumber dari **KOR Rumah Tangga SUSENAS Maret Jawa Barat 2019–2023**. Unit analisis adalah rumah tangga. Semua persentase dan rata-rata menggunakan **FWT** sebagai penimbang rumah tangga, dihitung terpisah untuk setiap tahun dan wilayah. Jumlah sampel dilaporkan tanpa pembobotan.
+
+R105 bernilai 1 untuk perkotaan dan 2 untuk perdesaan. Definisi variabel dan label kategori profil 2023 mengacu pada metadata KOR SUSENAS 2023, lembar *Kor RT* dan *value labels Kor RT*. Observasi yang dianalisis berasal dari Jawa Barat, memiliki kategori wilayah yang valid, serta bobot positif.
+
+Rata-rata tertimbang dihitung sebagai $\sum w_i x_i/\sum w_i$. Persentase kategori dihitung sebagai $100\sum w_i I(x_i=k)/\sum w_i$ pada observasi valid dalam wilayah terkait. Nilai hilang/kode di luar kategori dikeluarkan hanya dari indikator yang bersangkutan. Kategori jumlah ART 6+ menggabungkan rumah tangga beranggota enam orang atau lebih.
+
+Survei antartahun merupakan potret sampel yang berbeda, bukan panel rumah tangga yang sama. Hasil bersifat deskriptif, tanpa klaim sebab-akibat atau uji signifikansi. Interval kepercayaan berbasis desain survei tidak dihitung.
+
+```{r}
+#| label: persiapan
+dir.create('figures', showWarnings = FALSE)
+dir.create('tables', showWarnings = FALSE)
+root <- file.path('..', 'SUSENAS')
+if (!dir.exists(root)) stop('Folder data tidak ditemukan: ', root)
+read_rt <- function(y, cols) {
+  p <- file.path(root, y, 'csv', 'KOR', paste0(y, ' Maret JABAR - SUSENAS KOR Rumah Tangga.csv'))
+  header <- names(read.csv(p, nrows=0))
+  stopifnot(all(cols %in% header))
+  cls <- ifelse(header %in% cols, 'numeric', 'NULL')
+  d <- read.csv(p, colClasses=cls)
+  stopifnot(all(d$R101 == 32), all(is.finite(d$FWT) & d$FWT > 0), all(d$R105 %in% 1:2))
+  d
+}
+colors <- c('#126782', '#C65D32')
+regions <- c('Perkotaan','Perdesaan')
+audit <- data.frame()
+record <- function(y, indicator, mask) {
+  audit <<- rbind(audit, data.frame(tahun=y, indikator=indicator,
+    n_total=length(mask), n_valid=sum(mask), n_dikeluarkan=sum(!mask)))
+}
+start <- function(file, title, subtitle, left=5) {
+  png(file.path('figures', file), width=1600, height=960, res=160)
+  par(mar=c(6,left,5,2), bg='white', fg='#243746', col.axis='#43515C',
+      col.lab='#243746', family='sans', las=1)
+}
+finish <- function(title, subtitle) {
+  title(main=title, sub=subtitle, cex.main=1.35, cex.sub=.85)
+  invisible(dev.off())
+}
+```
+
+```{r}
+#| label: fungsi-ringkasan
+distribution <- function(x, codes, labels, name) {
+  ok <- !is.na(x) & x %in% codes
+  record(2023,name,ok)
+  m <- sapply(1:2,function(g) {
+    use <- ok & d$R105==g
+    stopifnot(sum(use)>0)
+    sapply(codes,function(k) 100*sum(d$FWT[use & x==k],na.rm=TRUE)/sum(d$FWT[use]))
+  })
+  stopifnot(all(abs(colSums(m)-100)<1e-8))
+  dimnames(m) <- list(labels,regions)
+  write.csv(data.frame(kategori=labels,m,check.names=FALSE),paste0('tables/',name,'.csv'),row.names=FALSE)
+  m
+}
+groupbars <- function(m,file,title,left=10) {
+  start(file,'','',left)
+  positions <- barplot(t(m[nrow(m):1,,drop=FALSE]),beside=TRUE,horiz=TRUE,
+     col=colors,border=NA,xlim=c(0,110),xlab='Rumah tangga (%)',cex.names=.92)
+  text(t(m[nrow(m):1,,drop=FALSE])+1,positions,
+       labels=sprintf('%.1f',t(m[nrow(m):1,,drop=FALSE])),pos=4,cex=.85)
+  legend('bottomright',regions,fill=colors,bty='n')
+  finish(title,'SUSENAS Jawa Barat 2023 | Persentase tertimbang FWT')
+}
+```
+
+## 1. Tren ukuran rumah tangga
+
+Grafik garis memperlihatkan arah perubahan rata-rata dan perbedaan perkotaan–perdesaan. Sumbu vertikal dimulai dari nol.
+
+```{r}
+#| label: analisis-1
+trend <- do.call(rbind, lapply(2019:2023, function(y) {
+  d <- read_rt(y, c('R101','R105','R301','FWT'))
+  ok <- is.finite(d$R301) & d$R301 >= 1 & d$R301 == floor(d$R301)
+  record(y, 'Jumlah ART', ok)
+  do.call(rbind,lapply(1:2,function(g) {
+    s <- d[ok & d$R105 == g,]
+    data.frame(tahun=y,wilayah=regions[g],n=nrow(s),rata=weighted.mean(s$R301,s$FWT))
+  }))
+}))
+write.csv(trend,'tables/01_tren.csv',row.names=FALSE)
+start('01_tren.png','','')
+plot(NA,xlim=c(2019,2023),ylim=c(0,ceiling(max(trend$rata)+.5)),
+     xlab='Tahun survei',ylab='Rata-rata anggota rumah tangga (orang)',xaxt='n')
+axis(1,at=2019:2023)
+abline(h=0:6,col='#E6EAEE',lty=1)
+for(g in 1:2) {
+  s <- trend[trend$wilayah==regions[g],]
+  lines(s$tahun,s$rata,col=colors[g],lwd=3,type='b',pch=19)
+  text(s$tahun,s$rata,labels=sprintf('%.2f',s$rata),pos=if(g==1) 3 else 1,col=colors[g],cex=.9)
+}
+legend('bottomleft',regions,col=colors,lwd=3,pch=19,bty='n',horiz=TRUE)
+finish('Ukuran rumah tangga dari tahun ke tahun','SUSENAS Jawa Barat 2019-2023 | Rata-rata tertimbang FWT')
+```
+
+
+```{r}
+#| label: tabel-1
+knitr::kable(trend, digits=2, caption='Rata-rata ART tertimbang dan jumlah sampel valid')
+```
+
+![Rata-rata tertimbang jumlah ART menurut wilayah, 2019–2023.](figures/01_tren.png){fig-alt="Grafik garis rata-rata jumlah anggota rumah tangga di perkotaan dan perdesaan Jawa Barat, 2019 sampai 2023."}
+
+Pada 2023, rata-rata ukuran rumah tangga adalah **`r sprintf("%.2f", trend$rata[trend$tahun == 2023 & trend$wilayah == "Perkotaan"])` orang di perkotaan** dan **`r sprintf("%.2f", trend$rata[trend$tahun == 2023 & trend$wilayah == "Perdesaan"])` orang di perdesaan**.
+
+## 2. Distribusi ukuran rumah tangga
+
+Distribusi melengkapi rata-rata: dua wilayah dengan rata-rata serupa dapat memiliki komposisi ukuran rumah tangga berbeda. Persentase seluruh kategori berjumlah 100% dalam setiap wilayah, sebelum pembulatan.
+
+```{r}
+#| label: analisis-2
+d <- read_rt(2023,c('R101','R105','R301','FWT','R1802','R1809A',paste0('R',1701:1708)))
+
+size <- ifelse(is.finite(d$R301) & d$R301>=1 & d$R301==floor(d$R301),pmin(d$R301,6),NA)
+m2 <- distribution(size,1:6,c('1 orang','2 orang','3 orang','4 orang','5 orang','6+ orang'),'02_distribusi_art')
+groupbars(m2,'02_distribusi_art.png','Komposisi ukuran rumah tangga',8)
+```
+
+
+```{r}
+#| label: tabel-2
+knitr::kable(m2, digits=1, caption='Distribusi jumlah ART (%)')
+```
+
+![Komposisi jumlah ART pada 2023.](figures/02_distribusi_art.png)
+
+Kategori terbanyak adalah **`r rownames(m2)[which.max(m2[,1])]`** di perkotaan (`r sprintf("%.1f", max(m2[,1]))`%) dan **`r rownames(m2)[which.max(m2[,2])]`** di perdesaan (`r sprintf("%.1f", max(m2[,2]))`%).
+
+## 3. Status kepemilikan tempat tinggal
+
+Status kepemilikan tempat tinggal mencakup milik sendiri, kontrak/sewa, bebas sewa, dinas, dan lainnya. Status kepemilikan bangunan tidak langsung menunjukkan nilai aset atau kualitas hunian.
+
+```{r}
+#| label: analisis-3
+m3 <- distribution(d$R1802,1:5,c('Milik sendiri','Kontrak/sewa','Bebas sewa','Dinas','Lainnya'),'03_kepemilikan')
+groupbars(m3,'03_kepemilikan.png','Status kepemilikan tempat tinggal',10)
+```
+
+
+```{r}
+#| label: tabel-3
+knitr::kable(m3, digits=1, caption='Status kepemilikan tempat tinggal (%)')
+```
+
+![Status kepemilikan tempat tinggal pada 2023.](figures/03_kepemilikan.png)
+
+Rumah tangga yang menempati rumah milik sendiri mencapai **`r sprintf("%.1f", m3[1,1])`%** di perkotaan dan **`r sprintf("%.1f", m3[1,2])`%** di perdesaan.
+
+## 4. Fasilitas buang air besar
+
+Kategori mengikuti R1809A, mencakup fasilitas sendiri, bersama, MCK, tidak digunakan, serta tidak ada fasilitas. Indikator ini menggambarkan fasilitas dan penggunaannya; klasifikasi sanitasi layak memerlukan variabel tambahan.
+
+```{r}
+#| label: analisis-4
+m4 <- distribution(d$R1809A,1:6,c('Sendiri','Bersama RT tertentu','MCK komunal','MCK umum','Ada, tidak digunakan','Tidak ada fasilitas'),'04_fasilitas_bab')
+groupbars(m4,'04_fasilitas_bab.png','Fasilitas buang air besar',12)
+```
+
+
+```{r}
+#| label: tabel-4
+knitr::kable(m4, digits=1, caption='Fasilitas BAB (%)')
+```
+
+![Fasilitas BAB rumah tangga pada 2023.](figures/04_fasilitas_bab.png)
+
+Fasilitas BAB yang hanya digunakan ART sendiri tercatat pada **`r sprintf("%.1f", m4[1,1])`%** rumah tangga perkotaan dan **`r sprintf("%.1f", m4[1,2])`%** rumah tangga perdesaan.
+
+## 5. Pengalaman kesulitan pangan
+
+Setiap titik menyatakan persentase jawaban **Ya (1)** dari respons **Ya (1) atau Tidak (5)** pada butir tersebut. Kode 8 (tidak tahu), 9 (menolak menjawab), dan kosong dikeluarkan dari penyebut per butir. Satu rumah tangga dapat menjawab Ya pada beberapa butir, sehingga persentase antarputir tidak dijumlahkan menjadi 100%.
+
+```{r}
+#| label: analisis-5
+items <- c('Khawatir kekurangan makanan','Tidak makan sehat/bergizi','Sedikit jenis makanan',
+           'Melewatkan waktu makan','Makan lebih sedikit','Kehabisan makanan','Lapar tetapi tidak makan','Tidak makan seharian')
+m5 <- t(sapply(1:8,function(i) {
+  x <- d[[paste0('R',1700+i)]]
+  ok <- !is.na(x) & x %in% c(1,5)
+  record(2023,paste0('R',1700+i),ok)
+  sapply(1:2,function(g) {
+    use <- ok & d$R105==g
+    100*sum(d$FWT[use & x==1],na.rm=TRUE)/sum(d$FWT[use])
+  })
+}))
+dimnames(m5) <- list(items,regions)
+write.csv(data.frame(item=items,m5,check.names=FALSE),'tables/05_pengalaman_pangan.csv',row.names=FALSE)
+start('05_pengalaman_pangan.png','','',16)
+plot(NA,xlim=c(0,max(m5)*1.25),ylim=c(.5,8.5),yaxt='n',ylab='',xlab='Rumah tangga menjawab Ya (%)')
+axis(2,at=8:1,labels=items,tick=FALSE,cex.axis=.85)
+abline(h=1:8,col='#E6EAEE')
+for(g in 1:2) {
+  yy <- (8:1)+if(g==1) .12 else -.12
+  points(m5[,g],yy,pch=19,col=colors[g],cex=1.2)
+  text(m5[,g],yy,sprintf('%.1f',m5[,g]),pos=4,col=colors[g],cex=.8)
+}
+legend('bottomright',regions,col=colors,pch=19,bty='n')
+finish('Delapan pengalaman kesulitan pangan','SUSENAS Jawa Barat 2023 | Persentase tertimbang, respons valid per butir')
+```
+
+
+```{r}
+#| label: tabel-5
+knitr::kable(m5, digits=1, caption='Jawaban Ya per butir pangan (%)')
+```
+
+![Persentase jawaban Ya pada delapan butir pengalaman kesulitan pangan pada 2023.](figures/05_pengalaman_pangan.png)
+
+Kekhawatiran kekurangan makanan dilaporkan oleh **`r sprintf("%.1f", m5[1,1])`%** rumah tangga perkotaan dan **`r sprintf("%.1f", m5[1,2])`%** rumah tangga perdesaan dengan respons valid.
+
+Angka per butir ini **bukan prevalensi resmi kerawanan pangan sedang/berat FIES** dan tidak menggunakan klasifikasi skor atau kalibrasi Rasch.
+
+## Kelengkapan data
+
+Tabel berikut menyajikan jumlah observasi yang masuk ke perhitungan setiap indikator. Nilai ini merupakan jumlah sampel, bukan estimasi jumlah rumah tangga di populasi.
+
+```{r}
+#| label: audit
+write.csv(audit, 'tables/audit.csv', row.names=FALSE)
+knitr::kable(audit, col.names=c('Tahun','Indikator','Sampel','Valid','Dikeluarkan'))
+```
+
+
